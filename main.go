@@ -27,17 +27,20 @@ type Config struct {
 	FIELDS               map[string]string
 	IS_DOCKER_STATS      bool
 	DOCKER_ENDPOINT      string
+	TOKEN                string
 }
 
 type YAMLConfig struct {
 	Global struct {
 		DatabaseURL string `yaml:"database_url"`
+		Token       string `yaml:"token"`
 	} `yaml:"global"`
 	Insert map[string]struct {
 		URL            string            `yaml:"url"`
 		WaitTime       int               `yaml:"waitTime"`
 		StoreBlank     bool              `yaml:"storeBlank"`
 		DatabaseURL    string            `yaml:"databaseUrl"`
+		Token          string            `yaml:"token"`
 		Fields         map[string]string `yaml:"fields"`
 		DockerStats    bool              `yaml:"dockerStats"`
 		DockerEndpoint string            `yaml:"dockerEndpoint"`
@@ -62,7 +65,7 @@ func main() {
 			go func(cfg Config) {
 				docker.StatsCollector(cfg.DB_ATTRIBUTE_NAME, cfg.SLEEP_TIME, cfg.RECORD_EMPTY_OR_ZERO, func(payload string) {
 					log.Printf("INSERT : [%s]", payload)
-					if err := postDataToInfluxDB(cfg.DATABASE_URL, payload); err != nil {
+					if err := postDataToInfluxDB(cfg.DATABASE_URL, payload, cfg.TOKEN); err != nil {
 						log.Printf("[%s] Failed to post Docker stats data: %v", cfg.DB_ATTRIBUTE_NAME, err)
 					}
 				})
@@ -108,6 +111,11 @@ func loadConfigsFromYAML(path string) ([]Config, error) {
 			if dockerEndpoint == "" {
 				dockerEndpoint = "unix:///var/run/docker.sock"
 			}
+			// Determine which token to use (job-specific or global)
+			token := entry.Token
+			if token == "" {
+				token = yconf.Global.Token
+			}
 			config := Config{
 				DATABASE_URL:         db,
 				DB_ATTRIBUTE_NAME:    name,
@@ -115,6 +123,7 @@ func loadConfigsFromYAML(path string) ([]Config, error) {
 				RECORD_EMPTY_OR_ZERO: entry.StoreBlank,
 				IS_DOCKER_STATS:      true,
 				DOCKER_ENDPOINT:      dockerEndpoint,
+				TOKEN:                token,
 			}
 			config.printValues()
 			configs = append(configs, config)
@@ -132,6 +141,10 @@ func loadConfigsFromYAML(path string) ([]Config, error) {
 			if db == "" {
 				db = yconf.Global.DatabaseURL
 			}
+			token := entry.Token
+			if token == "" {
+				token = yconf.Global.Token
+			}
 			config := Config{
 				DATABASE_URL:         db,
 				DB_ATTRIBUTE_NAME:    name,
@@ -140,6 +153,7 @@ func loadConfigsFromYAML(path string) ([]Config, error) {
 				RECORD_EMPTY_OR_ZERO: entry.StoreBlank,
 				FIELDS:               entry.Fields,
 				IS_DOCKER_STATS:      false,
+				TOKEN:                token,
 			}
 			config.printValues()
 			configs = append(configs, config)
@@ -205,7 +219,7 @@ func jsonChecker(config Config) {
 		}
 		payload = strings.TrimSuffix(payload, ",")
 		log.Printf("INSERT : [%s]", payload)
-		if err := postDataToInfluxDB(config.DATABASE_URL, payload); err != nil {
+		if err := postDataToInfluxDB(config.DATABASE_URL, payload, config.TOKEN); err != nil {
 			log.Printf("[%s] Failed to post data : %v", config.DB_ATTRIBUTE_NAME, err)
 		}
 	}
@@ -237,8 +251,20 @@ func sanitize(s string) string {
 	return strings.ReplaceAll(s, "-", "_")
 }
 
-func postDataToInfluxDB(url, payload string) error {
-	resp, err := http.Post(url, "application/x-www-form-urlencoded", bytes.NewBufferString(payload))
+func postDataToInfluxDB(url, payload, token string) error {
+	// Create a new request
+	req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+	if err != nil {
+		return fmt.Errorf("create request error: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Add authorization header if token is provided
+	if token != "" {
+		req.Header.Set("Authorization", "Token "+token)
+	}
+	// Execute the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("post error: %v", err)
 	}
