@@ -114,7 +114,9 @@ Images are automatically built and pushed to:
 - Docker Hub: `gtstef/scrape-insert-influxdb:latest`
 - GitHub Container Registry: `ghcr.io/gtsteffaniak/scrape-insert-influxdb:latest`
 
-#### Run with Docker
+#### Run with Docker Stats support
+
+Running with a config and docker socket mounted for docker stats support
 
 ```bash
 docker run -d \
@@ -182,7 +184,7 @@ global:
 insert:
   github_stars:
     url: https://api.github.com/repos/gtsteffaniak/filebrowser
-    waitTime: 3600
+    waitTime: 3600 # every 60 minutes
     storeBlank: false
     fields:
       stars: $.stargazers_count
@@ -199,7 +201,7 @@ global:
 insert:
   service_health:
     url: https://api.example.com/health
-    waitTime: 30
+    waitTime: 30 # every 30 seconds
     storeBlank: true
     fields:
       status: $.status
@@ -216,6 +218,6 @@ global:
 insert:
   container_metrics:
     dockerStats: true
-    waitTime: 15
+    waitTime: 15 # every 15 seconds
     storeBlank: false
 ```
